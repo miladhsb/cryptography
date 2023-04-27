@@ -1,11 +1,16 @@
-﻿using cryptography.Services;
+﻿using cryptography.Model;
+using cryptography.Services;
 using cryptography.Utility;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Core.Infrastructure;
+using Microsoft.IdentityModel.Tokens;
 using Swashbuckle.AspNetCore.Annotations;
 using System.ComponentModel;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace cryptography.Controllers
@@ -173,5 +178,178 @@ namespace cryptography.Controllers
             var VerifySignature = _criptoService.VerifySignature(document, SignData, Privatekey);
             return Ok(new { Message = document, SignData = MyBase64UrlEncoder.Encode(SignData), IsVerifySignature = VerifySignature });
         }
+        //ایجاد توکن دستی HMACSHA256 
+        [HttpGet("CreateJwtWithHMACSHA256")]
+        public IActionResult CreateJwtWithHMACSHA256()
+        {
+            var header = new MyJwtHeader()
+            {
+                alg = "HS256",
+                typ = "JWT"
+            };
+
+            var Payload = new MyJwtPayload() { Name="milad",LastName="Kh" };
+           
+            return Ok(new { Token = _criptoService.CreateJwtWithHMACSHA256(Payload, header, "123456") });
+        }
+
+        //ایجاد توکن دستی RS256
+        [HttpGet("CreateJwtWitRS256")]
+        public IActionResult CreateJwtWitRS256()
+        {
+            var header = new MyJwtHeader()
+            {
+                alg = "RS256",
+                typ = "JWT"
+            };
+            var Payload = new MyJwtPayload() { Name = "milad", LastName = "Kh" };
+            var rsa = new RSACryptoServiceProvider(1024);
+            var PublicKey = rsa.ExportParameters(false);
+            var Privatekey = rsa.ExportParameters(true);
+
+            RsaSecurityKey publicAndPrivateKey = new(rsa.ExportParameters(true))
+            {
+                KeyId = "keyId1"
+            };
+
+            var jwk = JsonWebKeyConverter.ConvertFromRSASecurityKey(publicAndPrivateKey);
+
+          
+
+            return Ok(new { Token = _criptoService.CreateJwtWitRS256(Payload, header, Privatekey),Jwk= System.Text.Json.JsonSerializer.Serialize(jwk) });
+        }
+
+        #region  ایجاد توکن با متد های کتابخانه jwt bearer
+        [HttpGet("GenerateTokenHmacSha256")]
+        public IActionResult GenerateTokenHmacSha256()
+        {
+            List<Claim> claims= new List<Claim>();
+            claims.Add(new Claim("name", "milad"));
+          var SecurityToken=   _criptoService.GenerateTokenHmacSha256(claims);
+            JwtSecurityTokenHandler jwtSecurityTokenHandler= new JwtSecurityTokenHandler();
+
+            return Ok(new { Token = jwtSecurityTokenHandler.WriteToken(SecurityToken) });
+        }
+
+        [HttpGet("GenerateTokenCompressSha256")]
+        public IActionResult GenerateTokenCompressSha256()
+        {
+            List<Claim> claims = new List<Claim>();
+            claims.Add(new Claim("name", "milad"));
+            var SecurityToken = _criptoService.GenerateTokenCompressSha256(claims);
+            JwtSecurityTokenHandler jwtSecurityTokenHandler = new JwtSecurityTokenHandler();
+
+            return Ok(new { Token = jwtSecurityTokenHandler.WriteToken(SecurityToken) });
+        }
+
+        [HttpGet("GenerateTokenCompressRs256")]
+        public IActionResult GenerateTokenCompressRs256()
+        {
+            using RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(1024);
+           
+
+            List<Claim> claims = new List<Claim>();
+            claims.Add(new Claim("name", "milad"));
+            var SecurityToken = _criptoService.GenerateTokenCompressRs256(claims, rsa.ExportParameters(true));
+            JwtSecurityTokenHandler jwtSecurityTokenHandler = new JwtSecurityTokenHandler();
+
+            return Ok(new { Token = jwtSecurityTokenHandler.WriteToken(SecurityToken) });
+        }
+
+        [HttpGet("GenerateTokenCompressCustomeRs256")]
+        public IActionResult GenerateTokenCompressCustomeRs256()
+        {
+            using RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(1024);
+
+            List<Claim> claims = new List<Claim>();
+            claims.Add(new Claim("name", "milad"));
+            var SecurityToken = _criptoService.GenerateTokenCompressCustomeRs256(claims, rsa.ExportParameters(true));
+            JwtSecurityTokenHandler jwtSecurityTokenHandler = new JwtSecurityTokenHandler();
+
+            return Ok(new { Token = jwtSecurityTokenHandler.WriteToken(SecurityToken) });
+        }
+
+        #endregion
+
+        #region اعتبار سنجی توکنهای jwt 
+        [HttpGet("ValidateJwtTokenRSA")]
+        public IActionResult ValidateJwtTokenRSA()
+        {
+            using RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(1024);
+
+            List<Claim> claims = new List<Claim>();
+            claims.Add(new Claim("name", "milad"));
+            var SecurityToken = _criptoService.GenerateTokenCompressCustomeRs256(claims, rsa.ExportParameters(true));
+            JwtSecurityTokenHandler jwtSecurityTokenHandler = new JwtSecurityTokenHandler();
+            var token = jwtSecurityTokenHandler.WriteToken(SecurityToken);
+
+
+            var ClaimsPrincipalRes=  _criptoService.ValidateJwtTokenRSA(token, rsa.ExportParameters(false));
+            
+            return Ok(new { Token = token, isvalid= ClaimsPrincipalRes.Identity.IsAuthenticated });
+        }
+
+        [HttpGet("ValidateJwtTokenHmacSha")]
+        public IActionResult ValidateJwtTokenHmacSha()
+        {
+            List<Claim> claims = new List<Claim>();
+            claims.Add(new Claim("name", "milad"));
+            var SecurityToken = _criptoService.GenerateTokenCompressSha256(claims);
+            JwtSecurityTokenHandler jwtSecurityTokenHandler = new JwtSecurityTokenHandler();
+            var token = jwtSecurityTokenHandler.WriteToken(SecurityToken);
+
+
+            var ClaimsPrincipalRes = _criptoService.ValidateJwtTokenHmacSha(token);
+
+            return Ok(new { Token = token, isvalid = ClaimsPrincipalRes.Identity.IsAuthenticated });
+        }
+
+        //اعتبار سنجی توکنهای ساخته شده دستی
+        [HttpGet("ValidateJwtTokenHmacShaManual")]
+        public IActionResult ValidateJwtTokenHmacShaManual()
+        {
+            var header = new MyJwtHeader()
+            {
+                alg = "HS256",
+                typ = "JWT"
+            };
+
+            var Payload = new MyJwtPayload() { Name = "milad", LastName = "Kh" };
+
+        
+            var token = _criptoService.CreateJwtWithHMACSHA256(Payload, header, "1sdd1sdv65sd1v56ds51cvvx2");
+
+
+            var ClaimsPrincipalRes = _criptoService.ValidateJwtTokenHmacSha(token);
+
+            return Ok(new { Token = token, isvalid = ClaimsPrincipalRes.Identity.IsAuthenticated });
+        }
+
+        //اعتبار سنجی توکنهای ساخته شده دستی RSA
+        [HttpGet("ValidateJwtTokenHmacRsaManual")]
+        public IActionResult ValidateJwtTokenHmacRsaManual()
+        {
+            var header = new MyJwtHeader()
+            {
+                alg = "RS256",
+                typ = "JWT"
+            };
+
+            var Payload = new MyJwtPayload() { Name = "milad", LastName = "Kh" };
+
+            var rsa = new RSACryptoServiceProvider(1024);
+            var PublicKey = rsa.ExportParameters(false);
+            var Privatekey = rsa.ExportParameters(true);
+
+            var token = _criptoService.CreateJwtWitRS256(Payload, header, Privatekey);
+
+
+            var ClaimsPrincipalRes = _criptoService.ValidateJwtTokenRSA(token, PublicKey);
+         
+            return Ok(new { Token = token, isvalid = ClaimsPrincipalRes.Identity.IsAuthenticated });
+        }
+
+        #endregion
+
     }
 }
